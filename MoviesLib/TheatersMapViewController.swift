@@ -18,12 +18,15 @@ class TheatersMapViewController: UIViewController {
     var currentElement: String!
     var theater: Theater!
     var theaters: [Theater] = []
+    lazy var locationManager = CLLocationManager()
+    var poiAnnotations: [MKPointAnnotation] = []
 
     // MARK: - Super Methods
     override func viewDidLoad() {
         super.viewDidLoad()
         mapView.delegate = self
         loadXML()
+        requestUserLocationAuthorization()
     }
 
     // MARK: - Methods
@@ -38,6 +41,28 @@ class TheatersMapViewController: UIViewController {
             let coordinate = CLLocationCoordinate2D(latitude: theater.latitude, longitude: theater.longitude)
             let annotation = TheaterAnnotation(coordinate: coordinate, title: theater.name, subtitle: theater.address)
             mapView.addAnnotation(annotation)
+        }
+        
+        mapView.showAnnotations(mapView.annotations, animated: true)
+    }
+    
+    func requestUserLocationAuthorization() {
+        if CLLocationManager.locationServicesEnabled() {
+            locationManager.delegate = self
+            locationManager.desiredAccuracy = kCLLocationAccuracyBest
+            // locationManager.allowsBackgroundLocationUpdates = true // No simulador nao faz sentido
+            locationManager.pausesLocationUpdatesAutomatically = true
+            
+            switch CLLocationManager.authorizationStatus() {
+            case .authorizedAlways, .authorizedWhenInUse:
+                print("Usuário já autorizou o uso da localização!")
+            case .denied:
+                print("Usuário não autorizou o uso da localização!")
+            case .notDetermined:
+                locationManager.requestWhenInUseAuthorization()
+            case .restricted:
+                print("Acesso restrito à localização!")
+            }
         }
     }
 
@@ -98,11 +123,60 @@ extension TheatersMapViewController: MKMapViewDelegate {
             if annotationView == nil {
                 annotationView = MKAnnotationView(annotation: annotation, reuseIdentifier: "Theater")
                 annotationView.image = UIImage(named: "theaterIcon")
+                annotationView.canShowCallout = true
             } else {
                 annotationView.annotation = annotation
             }
         }
         
         return annotationView
+    }
+}
+
+// MARK: - CLLocationManagerDelegate
+extension TheatersMapViewController: CLLocationManagerDelegate {
+    
+    func locationManager(_ manager: CLLocationManager, didChangeAuthorization status: CLAuthorizationStatus) {
+        switch status {
+        case .authorizedAlways, .authorizedWhenInUse:
+            mapView.showsUserLocation = true
+        default:
+            break
+        }
+    }
+    
+    func mapView(_ mapView: MKMapView, didUpdate userLocation: MKUserLocation) {
+        print("Velocidade do usuário: \(userLocation.location?.speed ?? 0)")
+        
+        // Fazer o mapa seguir o usuário se movendo no mapa
+        // let region = MKCoordinateRegionMakeWithDistance(userLocation.coordinate, 500, 500)
+        // mapView.setRegion(region, animated: true)
+    }
+    
+}
+
+// MARK: - UISearchBarDelegate
+extension TheatersMapViewController: UISearchBarDelegate {
+    func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
+        let request = MKLocalSearchRequest()
+        request.naturalLanguageQuery = searchBar.text!
+        request.region = mapView.region
+        let search = MKLocalSearch(request: request)
+        search.start { (response, error) in
+            if error == nil {
+                guard let response = response else {return}
+                self.mapView.removeAnnotations(self.poiAnnotations)
+                self.poiAnnotations.removeAll()
+                for item in response.mapItems {
+                    let place = MKPointAnnotation()
+                    place.coordinate = item.placemark.coordinate
+                    place.title = item.name
+                    place.subtitle = item.phoneNumber
+                    self.poiAnnotations.append(place)
+                }
+                self.mapView.addAnnotations(self.poiAnnotations)
+            }
+        }
+        
     }
 }
